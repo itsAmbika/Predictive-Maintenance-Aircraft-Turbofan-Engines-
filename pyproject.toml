@@ -1,0 +1,47 @@
+[project]
+name = "aircraft-rul-prognostics"
+version = "0.1.0"
+description = "NASA C-MAPSS turbofan engine Remaining Useful Life (RUL) prognostics ML pipeline"
+authors = [
+    { name = "Boby Dubey", email = "bobydubey@fico.com" }
+]
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "fastapi>=0.140.13",
+    "joblib>=1.5.3",
+    "lightgbm>=4.7.0",
+    "llvmlite>=0.43",
+    "matplotlib>=3.11.1",
+    "numba>=0.60",
+    "numpy>=2.4.6",
+    "pandas>=3.0.5",
+    "plotly>=6.9.0",
+    "pyarrow>=25.0.0",
+    "python-multipart>=0.0.32",
+    "scikit-learn>=1.9.0",
+    "scipy>=1.17.1",
+    "seaborn>=0.13.2",
+    "shap>=0.50.0",
+    "torch>=2.13.0",
+    "uvicorn>=0.51.0",
+    "xgboost>=3.2.0",
+]
+
+[tool.uv]
+package = false
+index-strategy = "unsafe-best-match"
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.3.0",
+    "jupyterlab>=4.6.2",
+    "nbformat>=5.10.4",
+    "notebook>=7.6.1",
+]

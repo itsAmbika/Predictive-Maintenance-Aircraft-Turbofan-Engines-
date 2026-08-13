@@ -1,0 +1,29 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Node / frontend build
+node_modules/
+frontend-react/dist/
+frontend-react/node_modules/
+*.local
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Derived data — regenerable by re-running notebooks 01-03.
+# Raw data (data/raw) and trained artifacts (models/, artifacts/) ARE committed,
+# so the API runs on a fresh clone without re-running the pipeline.
+data/interim/
+data/processed/

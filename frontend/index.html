@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Aircraft RUL Prognostics</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Aircraft Engine RUL Prognostics</h1>
+    <p id="model-info" class="model-info">Loading model info…</p>
+  </header>
+
+  <main>
+    <div id="error-banner" class="error-banner" hidden></div>
+
+    <section class="upload-panel">
+      <label for="file-input" class="upload-label">
+        Upload a raw C-MAPSS sensor file (e.g. <code>test_FD001.txt</code>)
+      </label>
+      <input type="file" id="file-input" accept=".txt" />
+      <button id="download-csv" class="btn-secondary" disabled>Download CSV</button>
+      <span id="upload-status"></span>
+    </section>
+
+    <section class="summary-panel" id="summary-panel" hidden>
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-label">Engines scored</div>
+          <div class="kpi-value" id="kpi-total">–</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label">Avg predicted RUL</div>
+          <div class="kpi-value" id="kpi-avg-rul">–</div>
+        </div>
+        <div class="kpi-card risk-LOW">
+          <div class="kpi-label">Low risk</div>
+          <div class="kpi-value" id="kpi-low">–</div>
+        </div>
+        <div class="kpi-card risk-MEDIUM">
+          <div class="kpi-label">Medium risk</div>
+          <div class="kpi-value" id="kpi-medium">–</div>
+        </div>
+        <div class="kpi-card risk-HIGH">
+          <div class="kpi-label">High risk</div>
+          <div class="kpi-value" id="kpi-high">–</div>
+        </div>
+      </div>
+      <div class="donut-wrap"><canvas id="risk-donut"></canvas></div>
+    </section>
+
+    <section class="fleet-panel">
+      <div class="fleet-header">
+        <h2>Fleet overview <span id="row-count" class="row-count"></span></h2>
+        <div class="fleet-controls">
+          <input type="search" id="engine-search" placeholder="Search engine #…" />
+          <div class="risk-filter" id="risk-filter">
+            <button class="filter-chip active" data-risk="ALL">All</button>
+            <button class="filter-chip" data-risk="LOW">Low</button>
+            <button class="filter-chip" data-risk="MEDIUM">Medium</button>
+            <button class="filter-chip" data-risk="HIGH">High</button>
+          </div>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table id="fleet-table">
+          <thead>
+            <tr>
+              <th data-sort="unit_number">Engine <span class="sort-arrow"></span></th>
+              <th data-sort="last_cycle">Last cycle <span class="sort-arrow"></span></th>
+              <th data-sort="predicted_rul">Predicted RUL <span class="sort-arrow"></span></th>
+              <th data-sort="health_score">Health score <span class="sort-arrow"></span></th>
+              <th data-sort="risk">Risk <span class="sort-arrow"></span></th>
+            </tr>
+          </thead>
+          <tbody id="fleet-table-body">
+            <tr><td colspan="5" class="empty-row">Upload a sensor file to see predictions.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="detail-panel" id="detail-panel" hidden>
+      <h2 id="detail-title">Engine detail</h2>
+      <div class="detail-grid">
+        <div class="detail-stats" id="detail-stats"></div>
+        <div class="chart-wrap"><canvas id="health-chart" height="220"></canvas></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
