@@ -85,7 +85,9 @@ class SubsetInfo:
 SUBSET_INFO = {
     "FD001": SubsetInfo(100, 100, 1, 1, "One operating condition (sea level), one fault mode (HPC degradation)."),
     "FD002": SubsetInfo(260, 259, 6, 1, "Six operating conditions, one fault mode (HPC degradation)."),
-    "FD003": SubsetInfo(100, 100, 1, 2, "One operating condition (sea level), two fault modes (HPC + Fan degradation)."),
+    "FD003": SubsetInfo(
+        100, 100, 1, 2, "One operating condition (sea level), two fault modes (HPC + Fan degradation)."
+    ),
     "FD004": SubsetInfo(248, 249, 6, 2, "Six operating conditions, two fault modes (HPC + Fan degradation)."),
 }
 

@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_FROZEN: "1"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync
+      - name: ruff check
+        run: uv run ruff check src api tests
+      - name: ruff format --check
+        run: uv run ruff format --check src api tests
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync
+      # Artifact-dependent tests are excluded here; the pipeline job below covers
+      # that ground by building real artifacts from the committed raw data.
+      - name: pytest (no artifacts required)
+        run: uv run pytest -m "not slow" --cov=src --cov=api --cov-report=term-missing
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pytest-report
+          path: .pytest_cache/
+          retention-days: 5
+
+  pipeline:
+    # Proves the DAG still reproduces artifacts from raw data. Uses one cheap
+    # candidate model so CI stays a few minutes, not half an hour.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync
+      - name: prepare data
+        run: uv run python -m src.pipeline.prepare_data
+      - name: build features
+        run: uv run python -m src.pipeline.build_features
+      - name: train (single candidate)
+        run: uv run python -m src.pipeline.train models.candidates=[xgboost]
+      - name: evaluate + quality gate
+        run: uv run python -m src.pipeline.evaluate
+      - name: artifact-dependent tests
+        run: uv run pytest -m slow
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: metrics
+          path: |
+            reports/metrics_*.json
+            reports/model_leaderboard.csv
+            reports/error_by_rul_bin_*.csv
+          retention-days: 14
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: rul-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: smoke test the container
+        run: |
+          docker run -d --name rul -p 8000:8000 rul-api:ci
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/api/health | grep -q '"model_loaded":true'; then
+              echo "API is serving the model"; exit 0
+            fi
+            sleep 2
+          done
+          echo "API did not become ready"; docker logs rul; exit 1
+      - name: predict against the real test file
+        run: |
+          curl -sf -F "file=@data/raw/test_FD001.txt" http://localhost:8000/api/predict/upload \
+            | python -c "import json,sys; b=json.load(sys.stdin); assert b['n_engines']==100, b['n_engines']; print('scored', b['n_engines'], 'engines')"
+      - if: always()
+        run: docker rm -f rul || true
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-react
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend-react/package-lock.json
+      - run: npm ci
+      - name: typecheck + build
+        run: npm run build

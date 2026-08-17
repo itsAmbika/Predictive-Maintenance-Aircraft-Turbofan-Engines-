@@ -149,10 +149,7 @@ def train_regressor(
         else:
             epochs_without_improvement += 1
 
-        print(
-            f"epoch {epoch:3d} | train_loss {train_loss:.4f} | val_loss {val_loss:.4f}"
-            f"{' *' if improved else ''}"
-        )
+        print(f"epoch {epoch:3d} | train_loss {train_loss:.4f} | val_loss {val_loss:.4f}{' *' if improved else ''}")
 
         if epochs_without_improvement >= patience:
             print(f"Early stopping at epoch {epoch} (no val improvement for {patience} epochs).")

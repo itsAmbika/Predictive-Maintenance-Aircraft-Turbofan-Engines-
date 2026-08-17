@@ -14,6 +14,7 @@ dependencies = [
     "matplotlib>=3.11.1",
     "numba>=0.60",
     "numpy>=2.4.6",
+    "omegaconf>=2.3.0",
     "pandas>=3.0.5",
     "plotly>=6.9.0",
     "pyarrow>=25.0.0",
@@ -39,9 +40,36 @@ name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 
 [dependency-groups]
+# Installed by a plain `uv sync`. Deliberately excluded from the API image
+# (`uv sync --no-dev`), so nothing under api/ may import mlflow or pytest.
 dev = [
+    "httpx>=0.28.1",
     "ipykernel>=7.3.0",
     "jupyterlab>=4.6.2",
+    # mlflow-skinny, not mlflow: the full package pins pandas<3 / pyarrow<24, which
+    # this project can't satisfy. Skinny is the same client (tracking, flavors,
+    # registry API) without those pins; the *server* runs from its own image in
+    # docker-compose, so nothing here needs the heavy extras.
+    "mlflow-skinny>=3.0.0",
     "nbformat>=5.10.4",
     "notebook>=7.6.1",
+    "pytest>=8.3.4",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.9.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+    "slow: needs the full built feature tables / trained model artifacts on disk",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["notebooks", "frontend-react"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4"]
+ignore = ["E501", "B008"]  # E501: long lines are handled by the formatter; B008: FastAPI Depends/File idiom

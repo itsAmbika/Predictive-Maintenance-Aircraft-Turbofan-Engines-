@@ -10,11 +10,9 @@ engines. See PHASE 3 / PHASE 5 of the project plan.
 
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit
 from sklearn.preprocessing import StandardScaler
-
 
 # ---------------------------------------------------------------------------
 # RUL target

@@ -1,0 +1,18 @@
+.git
+.github
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+
+# Big inputs the API doesn't need -- it scores uploaded files, not the corpus.
+data/
+notebooks/
+docs/
+mlruns/
+mlartifacts/
+mlflow.db
+
+frontend-react/node_modules
+frontend-react/dist

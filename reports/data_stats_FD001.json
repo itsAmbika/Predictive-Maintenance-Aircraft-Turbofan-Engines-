@@ -1,0 +1,9 @@
+{
+  "subset": "FD001",
+  "train_rows": 20631,
+  "train_engines": 100,
+  "test_rows": 13096,
+  "test_engines": 100,
+  "train_max_rul": 361,
+  "median_engine_life": 199.0
+}

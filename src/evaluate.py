@@ -53,7 +53,12 @@ def metrics_table(results: dict[str, dict]) -> pd.DataFrame:
 # Error analysis by remaining-life bucket (PHASE 10)
 # ---------------------------------------------------------------------------
 
-DEFAULT_BINS = [(-np.inf, 20, "RUL <= 20"), (20, 50, "20 < RUL <= 50"), (50, 100, "50 < RUL <= 100"), (100, np.inf, "RUL > 100")]
+DEFAULT_BINS = [
+    (-np.inf, 20, "RUL <= 20"),
+    (20, 50, "20 < RUL <= 50"),
+    (50, 100, "50 < RUL <= 100"),
+    (100, np.inf, "RUL > 100"),
+]
 
 
 def evaluate_by_rul_bin(y_true, y_pred, bins: list[tuple[float, float, str]] = DEFAULT_BINS) -> pd.DataFrame:

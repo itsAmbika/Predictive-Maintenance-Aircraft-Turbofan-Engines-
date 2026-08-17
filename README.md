@@ -6,11 +6,15 @@ degradation simulation dataset (Saxena, Goebel, Simon & Eklund, PHM08 — see
 `docs/project_plan.pdf`.
 
 This repo covers the ML pipeline (data understanding through sequence models) plus a
-FastAPI serving layer and a React frontend on top of the trained model. **See
+FastAPI serving layer and a React frontend on top of the trained model, wrapped in a
+reproducible, config-driven, tracked, tested and containerized workflow — see
+[`docs/MLOPS.md`](docs/MLOPS.md) for that half. **See
 [`HANDOVER.md`](HANDOVER.md) for the current, authoritative status** — what's been
 executed with real data, what's still left, and suggested next steps.
 Short version: notebooks 01–06 have been run for real (FD001; best served model:
-XGBoost, R² 0.76; GRU is close behind and wins on MAE/RMSE); the API additionally
+XGBoost, validation R² 0.76 — on the official test set, scored the PHM08 way, the
+same model gets MAE 21.9 / R² 0.47, see [`docs/MLOPS.md`](docs/MLOPS.md#quality-gate);
+GRU is close behind and wins on MAE/RMSE); the API additionally
 serves failure probabilities, RUL prediction intervals, and live SHAP explanations
 (fitted/persisted via `scripts/fit_serving_extras.py` rather than re-running notebooks
 07/08); a React app (`frontend-react/`) is the primary UI, with the older static-JS
@@ -34,6 +38,25 @@ uv run ipykernel install --user --name aircraft-rul-prognostics --display-name "
 Then open any notebook under `notebooks/` (VS Code Jupyter extension, JupyterLab via
 `uv run jupyter lab`, or plain `jupyter notebook`) and select the
 **"Python (aircraft-rul-prognostics)"** kernel.
+
+## Reproducing every artifact
+
+The notebooks are the narrative; the **pipeline** is what produces the artifacts the
+API serves. From raw data to a scored, gated model in one command:
+
+```bash
+uv run python -m src.pipeline.run_all          # or: make pipeline
+```
+
+Stages run individually too (`python -m src.pipeline.train`), share
+[`conf/config.yaml`](conf/config.yaml), and accept CLI overrides:
+
+```bash
+uv run python -m src.pipeline.run_all subset=FD003 models.candidates=[xgboost] models.xgboost.max_depth=8
+```
+
+Full detail — tracking, quality gate, tests, CI, container — is in
+[`docs/MLOPS.md`](docs/MLOPS.md).
 
 ## Data
 
@@ -96,7 +119,7 @@ data/
   raw/         original C-MAPSS txt files
   interim/     intermediate tables (RUL added, scaled-but-not-lagged sensors)
   processed/   final model-ready feature tables
-src/           reusable pipeline code, imported by every notebook
+src/           reusable pipeline code, imported by the notebooks, the stages, and the API
   data_loader.py        column layout, sensor/op-setting metadata, file loading
   preprocessing.py      RUL construction, sensor variance triage, scaling, engine-grouped split
   feature_engineering.py  lag/rolling/diff/EMA features, operating-condition KMeans, PCA health indicator
@@ -104,15 +127,23 @@ src/           reusable pipeline code, imported by every notebook
   evaluate.py            MAE/RMSE/R2 + the PHM08/NASA asymmetric scoring function, RUL-bucketed error analysis
   health.py              health score, failure-probability labels, risk categorization
   torch_models.py        LSTM/GRU model definition + shared training loop
-notebooks/     01-08, run in order (see table above)
-models/        saved model artifacts (created by 04/05/06)
-artifacts/     saved scalers, PCA/KMeans objects, feature-column manifests (created by 03)
-reports/       leaderboard CSV, final maintenance table, figures
-docs/          the PHM08 paper and the project plan this pipeline follows
+  features.py            the single feature-building contract shared by training AND serving
+  config.py              typed loading of conf/config.yaml (+ CLI overrides, seeding)
+  tracking.py            MLflow helper (experiment, run tags, git SHA)
+  pipeline/              the runnable stages: prepare_data, build_features, train,
+                         evaluate, serving_extras, register, run_all
+conf/          config.yaml — every parameter that can change a model
+notebooks/     01-08, narrative/EDA (see table above); artifacts come from src/pipeline
+models/        saved model artifacts (created by the train / serving_extras stages)
+artifacts/     saved scalers, PCA/KMeans objects, feature manifest (created by build_features)
+reports/       leaderboard CSV, metrics JSON, error-by-bin CSV, figures
+tests/         unit/ (no artifacts needed) + integration/ (API, pipeline, train↔serve parity)
+docs/          the PHM08 paper, the project plan, and MLOPS.md
 api/           FastAPI serving layer (main.py, inference.py, schemas.py)
 frontend/      old static dashboard (index.html, app.js, style.css) — superseded, still works
 frontend-react/  React + TypeScript + Tailwind + Framer Motion + Recharts UI (primary frontend)
-scripts/       fit_serving_extras.py — persists notebook 08's failure-prob/quantile models
+scripts/       fit_serving_extras.py — deprecated shim for src/pipeline/serving_extras.py
+Dockerfile, docker-compose.yml, Makefile, .github/workflows/ci.yml
 ```
 
 ## Design principles followed throughout
@@ -128,9 +159,15 @@ scripts/       fit_serving_extras.py — persists notebook 08's failure-prob/qua
   health score formula, and LOW/MEDIUM/HIGH risk thresholds are all modeling decisions
   made in this project, not values published by NASA or the PHM08 paper.
 
+- **Training and serving share one feature-building function** (`src/features.py`), with
+  the feature params stored in the saved manifest — so the API can't drift from the model
+  it serves. A test asserts this on real data.
+
 ## Explicitly out of scope for now
 
 Transformer/TCN models, anomaly detection, engine-similarity search, sensitivity
-analysis, authentication, automated tests, model versioning/retraining pipelines, and
-Docker packaging. A FastAPI serving layer and a React frontend now exist (see above).
-Full detail on what's done vs. left is in `HANDOVER.md`.
+analysis, and API authentication. Also not yet here: DVC data/model versioning,
+schema validation at ingest, prediction logging, drift monitoring, Prometheus
+metrics, and a retraining orchestrator — see the last section of
+[`docs/MLOPS.md`](docs/MLOPS.md). Full detail on what's done vs. left is in
+`HANDOVER.md`.

@@ -22,7 +22,18 @@ frontend-react/node_modules/
 .DS_Store
 Thumbs.db
 
-# Derived data — regenerable by re-running notebooks 01-03.
+# Test / lint caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# MLflow local tracking store
+mlruns/
+mlartifacts/
+mlflow.db
+
+# Derived data — regenerable with `python -m src.pipeline.run_all`.
 # Raw data (data/raw) and trained artifacts (models/, artifacts/) ARE committed,
 # so the API runs on a fresh clone without re-running the pipeline.
 data/interim/

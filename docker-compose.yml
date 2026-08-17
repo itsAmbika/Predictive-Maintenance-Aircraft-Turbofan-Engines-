@@ -1,0 +1,42 @@
+# Local MLOps stack: the serving API plus an MLflow tracking server that has a
+# real Model Registry (the local file store used by `make train` does not).
+#
+#   docker compose up --build        api  -> http://localhost:8000
+#                                    mlflow -> http://localhost:5000
+#
+# Point the pipeline at the server to log runs there and enable registration:
+#   MLFLOW_TRACKING_URI=http://localhost:5000 uv run python -m src.pipeline.run_all mlflow.register=true
+
+services:
+  api:
+    build: .
+    image: rul-api:local
+    ports:
+      - "8000:8000"
+    environment:
+      # Lock CORS down to the frontends you actually serve.
+      RUL_CORS_ORIGINS: "http://localhost:8000,http://localhost:5173"
+      RUL_SUBSET: FD001
+    volumes:
+      # Swap in a newly trained model without rebuilding the image.
+      - ./models:/app/models:ro
+      - ./artifacts:/app/artifacts:ro
+      - ./reports:/app/reports:ro
+    restart: unless-stopped
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v3.6.0
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow-data:/mlflow
+    command: >
+      mlflow server
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --artifacts-destination /mlflow/artifacts
+      --host 0.0.0.0
+      --port 5000
+    restart: unless-stopped
+
+volumes:
+  mlflow-data:

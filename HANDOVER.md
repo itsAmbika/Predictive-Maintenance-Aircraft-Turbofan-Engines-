@@ -1,8 +1,48 @@
 # Handover — Aircraft RUL Prognostics
 
-Status as of **2026-08-05**. This file is the single source of truth for "what's
+Status as of **2026-08-13**. This file is the single source of truth for "what's
 actually done vs. what's left" — read this before `README.md` if you're picking the
 project up fresh.
+
+## Update 2026-08-13 — MLOps foundation
+
+The notebooks are no longer the only way to produce artifacts. Added:
+
+- **A runnable pipeline** (`src/pipeline/`): prepare_data → build_features → train →
+  evaluate → serving_extras → register, all driven by `conf/config.yaml`.
+  `uv run python -m src.pipeline.run_all` rebuilds everything from `data/raw/`.
+  Verified: the regenerated scaler statistics and all 290 feature columns are
+  identical to the committed notebook artifacts, and Linear Regression / LightGBM
+  reproduce the leaderboard numbers exactly (XGBoost differs in the third digit —
+  xgboost 3.3 vs the 3.2 the notebooks ran on).
+- **Config layer** (`src/config.py` + `conf/config.yaml`): no hyperparameter, window,
+  threshold, or path is a literal in code anymore; CLI overrides with dotlist syntax.
+- **Training/serving skew fixed**: `api/inference.py` used to hardcode `LAGS`,
+  `ROLLING_WINDOWS`, `EMA_SPANS` as a second copy of notebook 03's values. Both sides
+  now call `src/features.py::build_feature_frame` with the params read from the saved
+  manifest, and `tests/integration/test_train_serve_parity.py` asserts identical
+  feature values through both code paths.
+- **MLflow tracking** (`src/tracking.py`): a parent run per training invocation with a
+  nested run per candidate — params, val metrics, model, git SHA. Registry via the
+  compose-hosted server. Uses `mlflow-skinny` (full mlflow pins `pandas<3`).
+- **Quality gate**: `src/pipeline/evaluate.py` scores the official test set and exits
+  non-zero below the configured thresholds, so a regression can't be promoted.
+- **54 tests** (`tests/`), **CI** (`.github/workflows/ci.yml`: lint, tests, pipeline
+  rebuild + gate, docker build + container smoke test, frontend build), **Dockerfile**
+  (one image serving API + built React app), **docker-compose** (api + MLflow),
+  **Makefile**, and **ruff** config.
+- **API hardening**: artifacts load in a lifespan handler (missing model → `/api/health`
+  reports `model_loaded: false` and predictions 503, instead of an import crash), CORS
+  no longer `*` (`RUL_CORS_ORIGINS`), upload size cap, and `api/main.py` now serves
+  `frontend-react/dist` when it exists — item 3 of the old next-steps list.
+
+**Correction to the metrics below:** the numbers in the table are **validation-split**
+metrics (4,010 rows from held-out training engines), not the official test set. Scored
+the PHM08 way — last cycle of each of the 100 test engines vs `RUL_FD001.txt` — the same
+XGBoost model gets **MAE 21.9, RMSE 30.2, R² 0.47, NASA score 28,761**. Both sets are
+written to `reports/metrics_FD001.json` by the evaluate stage. Also measured: the
+`[10th, 90th]` RUL interval covers 72% of validation truth against a nominal 80%, so it
+is somewhat too narrow.
 
 ## What's done
 
@@ -89,25 +129,25 @@ project up fresh.
 
 ## What's NOT done
 
-- **`frontend/` (the old static dashboard) hasn't been retired.** Both frontends
-  exist side by side. Decide whether to delete `frontend/` and have `api/main.py`
-  serve `frontend-react/dist/` instead, or keep both around.
-- **FD002/FD003/FD004 subsets** are structurally supported by every `src/` function
-  but never run through the pipeline. `api/main.py` is hardcoded to `SUBSET = "FD001"`.
-- **No authentication/authorization** on the API — fine for local use, not for
-  exposing beyond localhost as-is.
-- **No automated tests** (unit tests for `src/`, integration test for the API, no
-  frontend tests either). The only verification so far is the manual smoke tests
-  described above.
+- **`frontend/` (the old static dashboard) hasn't been retired.** Both frontends exist
+  side by side; `api/main.py` now prefers `frontend-react/dist/` and falls back to
+  `frontend/`. Decide whether to delete the old one.
+- **FD002/FD003/FD004 subsets** are structurally supported and now a config change
+  (`subset=FD002`), but have never been run through the pipeline. FD002/FD004 have six
+  operating conditions, so expect the KMeans cluster feature to matter much more there.
+- **No authentication/authorization** on the API — CORS is locked down and uploads are
+  size-capped, but there's still no authn/authz. Not for public exposure as-is.
+- **No frontend tests** — the React app is covered only by `tsc -b && vite build` in CI.
 - **No persistence of uploaded predictions** — every upload is scored in memory and
   returned; nothing is written to a database or file. Fine for a demo, not for an
-  audit trail.
-- **No retraining/versioning story** — if you retrain and get a new
-  `best_model_FD001.joblib`, the API picks it up on restart, but there's no model
-  registry, no A/B, no rollback.
-- **No Docker packaging, no production build wired into FastAPI yet** — `frontend-react`
-  runs via `npm run dev`, separate from the API process; `npm run build` works
-  (verified) but `api/main.py` isn't yet pointed at the built `dist/` output.
+  audit trail, and it means there's no data to compute drift from later.
+- **No data/model versioning (DVC)** — `data/raw/`, `models/`, and `artifacts/` are
+  still committed as binaries in git.
+- **No drift monitoring, no metrics endpoint, no orchestrator** — retraining is a
+  command a human runs, not a scheduled DAG with automatic promotion.
+- **Docker is written but unverified** — `Dockerfile`, `docker-compose.yml`, and the
+  CI docker job were authored on a machine with no Docker daemon, so they have never
+  been built. Expect to iterate on the first `docker build`.
 - **Vite build has one non-blocking warning** — a JS chunk over 500kB (Recharts +
   Framer Motion are the likely contributors). Fine to ship as-is; code-splitting
   (`build.rollupOptions.output.manualChunks`) would quiet it if it matters later.
@@ -136,20 +176,29 @@ any raw C-MAPSS-format file with the same 26 whitespace-delimited columns) — y
 get real predictions, real risk categories, real intervals, and real SHAP explanations
 from the real trained model, not synthetic data.
 
-To re-run or extend the ML pipeline itself, see the notebook table in `README.md`. To
-regenerate the failure-probability/quantile artifacts the API depends on (e.g. after
-retraining), re-run `uv run python scripts/fit_serving_extras.py`.
+To rebuild every artifact from raw data (this is now the supported path, not the
+notebooks):
+
+```bash
+uv run python -m src.pipeline.run_all     # ~10 min on a laptop, all 5 candidates
+uv run pytest                             # 54 tests
+make mlflow-ui                            # browse the runs
+```
+
+`scripts/fit_serving_extras.py` still works but is a shim for
+`python -m src.pipeline.serving_extras`. See `docs/MLOPS.md` for the full workflow.
 
 ## Suggested next steps, roughly in priority order
 
 1. **Open the React app and give it a pixel-level pass** — you haven't seen it live
    yet. Run both processes above and say what to change; nothing about layout, motion,
    or color is locked in.
-2. Decide the fate of `frontend/` (old static dashboard) — delete it, or keep as a
+2. **Run `docker build`** somewhere with Docker and fix whatever the first build
+   surfaces — that's the one piece of the new setup that hasn't been executed.
+3. Decide the fate of `frontend/` (old static dashboard) — delete it, or keep as a
    lightweight fallback.
-3. Wire `npm run build`'s output into `api/main.py` so one `uvicorn` process serves
-   the production React build (matches how `frontend/` is served today).
-4. Add a couple of integration tests (`api/predict/upload` against a small fixture
-   file) before this goes anywhere beyond local/demo use.
-5. Only after the above: containerize (`Dockerfile` for `uv run uvicorn`, serving the
-   built React app).
+4. Run the pipeline on FD002 (`subset=FD002`) — six operating conditions makes it a
+   genuinely different problem and a good stress test of the config-driven pipeline.
+5. Next MLOps layer, in order: DVC for `data/`+`models/`, schema validation on ingest,
+   prediction logging to a database, then drift monitoring (Evidently, using FD002
+   against the FD001-trained model as the demo). Detail in `docs/MLOPS.md`.

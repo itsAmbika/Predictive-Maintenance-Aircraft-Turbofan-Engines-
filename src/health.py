@@ -21,7 +21,9 @@ def health_score(rul_pred, rul_healthy: float = 125) -> np.ndarray:
     return 100.0 * np.minimum(1.0, np.maximum(0.0, rul_pred) / rul_healthy)
 
 
-def add_failure_labels(df: pd.DataFrame, thresholds: tuple[int, ...] = (10, 20, 30), rul_col: str = "RUL") -> pd.DataFrame:
+def add_failure_labels(
+    df: pd.DataFrame, thresholds: tuple[int, ...] = (10, 20, 30), rul_col: str = "RUL"
+) -> pd.DataFrame:
     """Add binary classification targets: fail_within_{h} = 1 if RUL <= h."""
     out = df.copy()
     for h in thresholds:
@@ -29,22 +31,34 @@ def add_failure_labels(df: pd.DataFrame, thresholds: tuple[int, ...] = (10, 20, 
     return out
 
 
-RISK_RULES = [
-    (60, np.inf, "LOW", "Continue monitoring"),
-    (30, 60, "MEDIUM", "Increase inspection frequency"),
-    (-np.inf, 30, "HIGH", "Schedule maintenance inspection"),
-]
+DEFAULT_HIGH_BELOW = 30
+DEFAULT_MEDIUM_BELOW = 60
 
 
-def risk_category(rul_pred) -> pd.Series:
+def risk_rules(high_below: float = DEFAULT_HIGH_BELOW, medium_below: float = DEFAULT_MEDIUM_BELOW) -> list[tuple]:
+    """(low, high, label, action) bands. Thresholds come from ``conf/config.yaml``."""
+    return [
+        (medium_below, np.inf, "LOW", "Continue monitoring"),
+        (high_below, medium_below, "MEDIUM", "Increase inspection frequency"),
+        (-np.inf, high_below, "HIGH", "Schedule maintenance inspection"),
+    ]
+
+
+RISK_RULES = risk_rules()
+
+
+def risk_category(
+    rul_pred, high_below: float = DEFAULT_HIGH_BELOW, medium_below: float = DEFAULT_MEDIUM_BELOW
+) -> pd.Series:
     """Map predicted RUL to a LOW/MEDIUM/HIGH application risk bucket.
 
-    These cut points (30, 60 cycles) are an application-level modeling choice
-    made for this project, not a NASA-issued maintenance standard.
+    These cut points are an application-level modeling choice made for this
+    project (configurable under ``serving:`` in conf/config.yaml), not a
+    NASA-issued maintenance standard.
     """
     rul_pred = pd.Series(rul_pred)
     labels = pd.Series(index=rul_pred.index, dtype=object)
-    for lo, hi, label, _action in RISK_RULES:
+    for lo, hi, label, _action in risk_rules(high_below, medium_below):
         mask = (rul_pred > lo) & (rul_pred <= hi)
         labels[mask] = label
     return labels

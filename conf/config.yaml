@@ -1,0 +1,133 @@
+# Single source of truth for the RUL pipeline.
+#
+# Every stage (prepare_data -> build_features -> train -> evaluate -> serving_extras)
+# and the serving layer read their parameters from here. Nothing that affects the
+# model is allowed to live as a literal in a notebook or in api/.
+#
+# Override any key from the CLI, e.g.:
+#   uv run python -m src.pipeline.train subset=FD002 models.xgboost.max_depth=8
+
+project:
+  name: aircraft-rul-prognostics
+  seed: 42
+
+# Which C-MAPSS subset the whole pipeline runs on. FD001 is the simplest
+# (1 operating condition, 1 fault mode); FD002/FD004 have 6 conditions.
+subset: FD001
+
+paths:
+  raw: data/raw
+  interim: data/interim
+  processed: data/processed
+  artifacts: artifacts/scalers
+  models: models
+  reports: reports
+
+split:
+  val_size: 0.2
+  random_state: 42
+
+features:
+  lags: [1, 2, 3]
+  rolling_windows: [5, 10, 20]
+  rolling_stats: [mean, std, min, max]
+  ema_spans: [5, 10]
+  diff_periods: [1]
+  # A sensor whose normalized std is below this is treated as constant and dropped.
+  near_constant_std_threshold: 0.001
+
+target:
+  name: RUL
+  # Application-level modeling choice (not a physical constant): RUL is flat at
+  # `cap` cycles while an engine is still healthy. Written as RUL_capped.
+  cap: 125
+  # Which column models are fit on. `RUL` reproduces the notebook baseline;
+  # `RUL_capped` usually improves late-life accuracy.
+  train_on: RUL
+
+models:
+  # Trained in this order; every one is logged to MLflow and lands in the leaderboard.
+  candidates: [linear, decision_tree, random_forest, xgboost, lightgbm]
+  # Metric used to pick the model that gets persisted as best_model_<subset>.joblib.
+  selection_metric: MAE
+  selection_direction: min
+
+  linear: {}
+  decision_tree:
+    max_depth: 10
+    random_state: 42
+  random_forest:
+    n_estimators: 200
+    max_depth: 15
+    n_jobs: -1
+    random_state: 42
+  xgboost:
+    n_estimators: 1000
+    max_depth: 6
+    learning_rate: 0.03
+    subsample: 0.8
+    colsample_bytree: 0.8
+    reg_lambda: 1.0
+    early_stopping_rounds: 50
+    eval_metric: mae
+    n_jobs: -1
+    random_state: 42
+  lightgbm:
+    n_estimators: 1000
+    max_depth: -1
+    num_leaves: 63
+    learning_rate: 0.03
+    subsample: 0.8
+    colsample_bytree: 0.8
+    reg_lambda: 1.0
+    early_stopping_rounds: 50
+    n_jobs: -1
+    random_state: 42
+    verbosity: -1
+
+# The two extra model families the API serves alongside the point prediction.
+serving_extras:
+  failure_thresholds: [10, 20, 30]
+  quantile_low: 0.1
+  quantile_high: 0.9
+  quantile_params:
+    n_estimators: 300
+    max_depth: 3
+    random_state: 42
+  classifier_params:
+    max_iter: 2000
+    class_weight: balanced
+
+# Quality gate applied in the evaluate stage against the official C-MAPSS test set
+# (last cycle of each of the 100 test engines). A model failing any of these is not
+# eligible for registry promotion, and `python -m src.pipeline.evaluate` exits 1.
+#
+# Thresholds sit just below the current champion (MAE 21.9, RMSE 30.2, R2 0.47) so
+# a regression trips the gate. Note these are *official test set* numbers: the
+# validation-split R2 quoted in README/HANDOVER (0.76) is a different, easier
+# measurement -- see reports/metrics_FD001.json for both side by side.
+evaluation:
+  gate:
+    max_mae: 25.0
+    max_rmse: 35.0
+    min_r2: 0.40
+
+mlflow:
+  # null -> MLFLOW_TRACKING_URI env var, else a local ./mlruns file store.
+  # The Model Registry needs the server (docker compose up mlflow).
+  tracking_uri: null
+  experiment: aircraft-rul-prognostics
+  registered_model_name: aircraft-rul
+  # Whether run_all promotes the trained model to the Model Registry. Off by
+  # default so a routine re-run doesn't mint versions; CI and the retrain job
+  # pass `mlflow.register=true`.
+  register: false
+
+serving:
+  # Risk buckets and health score are application decisions, not NASA standards.
+  rul_healthy: 125
+  risk_high_below: 30
+  risk_medium_below: 60
+  # Horizon (in cycles) whose failure probability the API returns.
+  failure_horizon: 20
+  shap_top_n: 5

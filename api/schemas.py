@@ -34,6 +34,9 @@ class FleetPredictionResponse(BaseModel):
     subset: str
     n_engines: int
     engines: list[EnginePrediction]
+    # Horizon behind `fail_within_20_proba`, so the UI can label it from the
+    # response instead of assuming the configured default.
+    failure_horizon: int = 20
 
 
 class ModelInfo(BaseModel):
@@ -41,3 +44,7 @@ class ModelInfo(BaseModel):
     model_name: str
     n_features: int
     metrics: dict[str, float]
+    # Provenance -- filled from the model meta written by the training stage.
+    trained_at: str | None = None
+    git_sha: str | None = None
+    mlflow_run_id: str | None = None

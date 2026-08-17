@@ -17,9 +17,7 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
 
-def add_lag_features(
-    df: pd.DataFrame, cols: list[str], lags: list[int], id_col: str = "unit_number"
-) -> pd.DataFrame:
+def add_lag_features(df: pd.DataFrame, cols: list[str], lags: list[int], id_col: str = "unit_number") -> pd.DataFrame:
     """Add sensor(t - lag) columns, e.g. sensor_11_lag1, sensor_11_lag5."""
     out = df.copy()
     grouped = out.groupby(id_col)
@@ -64,9 +62,7 @@ def add_diff_features(
     return out
 
 
-def add_ema_features(
-    df: pd.DataFrame, cols: list[str], spans: list[int], id_col: str = "unit_number"
-) -> pd.DataFrame:
+def add_ema_features(df: pd.DataFrame, cols: list[str], spans: list[int], id_col: str = "unit_number") -> pd.DataFrame:
     """Add exponential moving averages: sensor_11_ema10."""
     out = df.copy()
     grouped = out.groupby(id_col)
@@ -116,9 +112,7 @@ def fit_health_indicator_pca(df: pd.DataFrame, sensor_cols: list[str]) -> tuple[
     return scaler, pca
 
 
-def add_health_indicator(
-    df: pd.DataFrame, sensor_cols: list[str], scaler: StandardScaler, pca: PCA
-) -> pd.DataFrame:
+def add_health_indicator(df: pd.DataFrame, sensor_cols: list[str], scaler: StandardScaler, pca: PCA) -> pd.DataFrame:
     """Project sensors onto the fitted 1-D PCA axis -> ``health_indicator`` column.
 
     Sign is not guaranteed to point in any particular direction; orient it (e.g.
