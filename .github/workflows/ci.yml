@@ -92,7 +92,7 @@ jobs:
           cache-to: type=gha,mode=max
       - name: smoke test the container
         run: |
-          docker run -d --name rul -p 8000:8000 rul-api:ci
+          docker run -d --name rul -e PORT=8000 -p 8000:8000 rul-api:ci
           for i in $(seq 1 30); do
             if curl -sf http://localhost:8000/api/health | grep -q '"model_loaded":true'; then
               echo "API is serving the model"; exit 0

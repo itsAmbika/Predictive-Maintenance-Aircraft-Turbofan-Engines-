@@ -1,0 +1,37 @@
+name: Deploy to Hugging Face Space
+
+# Manual by default. Flip the `push` trigger on once the first deploy works and
+# every merge to main will redeploy the Space.
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+
+concurrency:
+  group: deploy-hf
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Set these in the repo: Settings -> Secrets and variables -> Actions
+    #   secret HF_TOKEN     a write token from huggingface.co/settings/tokens
+    #   variable HF_SPACE_ID  e.g. itsAmbika/aircraft-rul-prognostics
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_SPACE_ID: ${{ vars.HF_SPACE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: check configuration
+        run: |
+          if [ -z "$HF_TOKEN" ] || [ -z "$HF_SPACE_ID" ]; then
+            echo "::error::set the HF_TOKEN secret and the HF_SPACE_ID variable first"
+            exit 1
+          fi
+
+      - name: push deploy tree to the Space
+        run: ./deploy/huggingface/sync.sh "$HF_SPACE_ID"
+
+      - name: summary
+        run: echo "Deployed to https://huggingface.co/spaces/$HF_SPACE_ID" >> "$GITHUB_STEP_SUMMARY"

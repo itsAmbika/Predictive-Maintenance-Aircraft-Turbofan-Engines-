@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { clsx } from "clsx";
-import { UploadCloud, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { UploadCloud, CheckCircle2, XCircle, Loader2, Sparkles } from "lucide-react";
 
 type Status = "idle" | "dragging" | "uploading" | "success" | "error";
 
@@ -23,6 +23,24 @@ export function UploadZone({
       if (!file) return;
       setStatus("uploading");
       onFile(file);
+    },
+    [onFile]
+  );
+
+  // Lets a first-time visitor score real data without having to find the NASA
+  // dataset first. Goes through the same onFile path as a manual upload.
+  const loadSample = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setStatus("uploading");
+      try {
+        const res = await fetch("/api/sample");
+        if (!res.ok) throw new Error(`sample unavailable (${res.status})`);
+        const blob = await res.blob();
+        onFile(new File([blob], "test_FD001.txt", { type: "text/plain" }));
+      } catch {
+        setStatus("error");
+      }
     },
     [onFile]
   );
@@ -85,9 +103,19 @@ export function UploadZone({
       </div>
 
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-[var(--text-bright)]">
-          Drop a raw C-MAPSS sensor file, or click to browse
-        </p>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <p className="text-sm font-medium text-[var(--text-bright)]">
+            Drop a raw C-MAPSS sensor file, or click to browse
+          </p>
+          <button
+            type="button"
+            onClick={loadSample}
+            className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] bg-white/5 px-2 py-0.5 text-xs text-[var(--text-dim)] transition-colors hover:border-[var(--cyan)]/60 hover:text-[var(--text-bright)]"
+          >
+            <Sparkles className="h-3 w-3" />
+            Try sample data
+          </button>
+        </div>
         <p className="truncate text-xs text-[var(--text-dim)]">
           {errorText ?? statusText ?? "Whitespace-delimited .txt — e.g. test_FD001.txt — scored instantly, on-device."}
         </p>

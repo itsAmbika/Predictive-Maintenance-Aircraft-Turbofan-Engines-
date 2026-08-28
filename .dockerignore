@@ -6,13 +6,20 @@ __pycache__
 .pytest_cache
 .ruff_cache
 
-# Big inputs the API doesn't need -- it scores uploaded files, not the corpus.
-data/
+# The API scores uploaded files, so the corpus isn't needed in the image --
+# except one real file, served at /api/sample so visitors can try the demo.
+data/*
+!data/raw/
+data/raw/*
+!data/raw/test_FD001.txt
+
 notebooks/
 docs/
 mlruns/
 mlartifacts/
 mlflow.db
+tests/
+deploy/
 
 frontend-react/node_modules
 frontend-react/dist

@@ -25,6 +25,7 @@ from pathlib import Path
 import pandas as pd
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from api import inference, schemas
@@ -120,6 +121,19 @@ def model_info() -> schemas.ModelInfo:
         git_sha=meta.get("git_sha"),
         mlflow_run_id=meta.get("mlflow_run_id"),
     )
+
+
+@app.get("/api/sample")
+def sample_file() -> FileResponse:
+    """One real C-MAPSS file, so a visitor can try the demo without the dataset.
+
+    Shipped in the image (see Dockerfile); absent in checkouts that never
+    downloaded the raw data, which is reported as a 404 rather than a crash.
+    """
+    path = PROJECT_ROOT / str(CFG.paths.raw) / f"test_{SUBSET}.txt"
+    if not path.exists():
+        raise HTTPException(404, f"sample file not available for subset {SUBSET}")
+    return FileResponse(path, media_type="text/plain", filename=path.name)
 
 
 @app.post("/api/predict/upload", response_model=schemas.FleetPredictionResponse)

@@ -142,6 +142,37 @@ The image installs with `--no-dev` (no mlflow/pytest/jupyter) and skips torch â€
 only the LSTM/GRU training code imports it, and the served model is XGBoost.
 Mount `models/` and `artifacts/` to swap in a retrained model without rebuilding.
 
+## Deploying to Hugging Face Spaces
+
+The image runs as-is on a Docker Space: it listens on `PORT` (default 7860, what
+Spaces expects), runs as uid 1000 with a writable `HOME`, and points matplotlib's
+and numba's cache dirs at `/tmp` -- the usual reasons a container works locally and
+fails on Spaces.
+
+1. Create the Space at <https://huggingface.co/new-space> -- **SDK: Docker**,
+   **Template: Blank**. Note the id, e.g. `your-name/aircraft-rul-prognostics`.
+2. Create a **write** token at <https://huggingface.co/settings/tokens>.
+3. Push the deploy tree:
+
+```bash
+HF_TOKEN=hf_xxx ./deploy/huggingface/sync.sh your-name/aircraft-rul-prognostics
+```
+
+The script pushes only what the image needs -- no notebooks, tests, docs, or the
+~30MB of raw C-MAPSS files (one 2.2MB sample is kept so the demo works), and it
+swaps in `deploy/huggingface/README.md`, which carries the YAML card metadata
+Spaces require. The GitHub README stays clean.
+
+The first build takes ~10-15 minutes (npm build + the Python dependency install);
+watch the Space's **Logs** tab. Afterwards, `.github/workflows/deploy-hf.yml`
+redeploys on demand -- set the `HF_TOKEN` secret and `HF_SPACE_ID` variable in the
+repo, then uncomment its `push` trigger to redeploy on every merge to main.
+
+Free CPU Spaces sleep after inactivity and cold-start in roughly a minute, which
+is fine for a portfolio demo. Note the API has **no authentication** -- anyone who
+finds the Space can post files at the inference endpoint (capped at 32MB by
+`RUL_MAX_UPLOAD_BYTES`). Acceptable for a public demo, not for anything else.
+
 ## Operational notes
 
 - **CORS** is no longer `*`. Set `RUL_CORS_ORIGINS` (comma-separated) for
@@ -151,6 +182,9 @@ Mount `models/` and `artifacts/` to swap in a retrained model without rebuilding
   makes `/api/health` report `model_loaded: false` and prediction return 503,
   instead of crashing the process at import.
 - **Subset**: `RUL_SUBSET` env var, or `subset` in the config.
+- **Sample data**: `GET /api/sample` serves `data/raw/test_<subset>.txt`, which
+  backs the frontend's "Try sample data" button so a first-time visitor can score
+  a real fleet without downloading the NASA dataset. Returns 404 if absent.
 
 ## What's deliberately not here yet
 

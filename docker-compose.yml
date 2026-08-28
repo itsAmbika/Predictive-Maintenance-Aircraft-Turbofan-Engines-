@@ -14,6 +14,8 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # The image defaults to 7860 for Hugging Face Spaces; locally we keep 8000.
+      PORT: 8000
       # Lock CORS down to the frontends you actually serve.
       RUL_CORS_ORIGINS: "http://localhost:8000,http://localhost:5173"
       RUL_SUBSET: FD001
