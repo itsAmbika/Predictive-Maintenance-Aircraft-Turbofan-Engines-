@@ -132,7 +132,14 @@ def build_feature_frame(
     """
     sensors = fitted.feature_sensors
 
-    out = pp.apply_scaler(df, sensors, fitted.scaler)
+    # Normalize row order ONCE, here. Lag/diff/EMA are all defined relative to the
+    # previous row within an engine and none of them sort internally (only
+    # add_rolling_features does), so an uploaded file in any other order -- shuffled,
+    # or the common "newest first" export -- would silently get wrong temporal
+    # features. For already-sorted input (every raw C-MAPSS file) this is a no-op.
+    ordered = df.sort_values(["unit_number", "cycle"], kind="stable").reset_index(drop=True)
+
+    out = pp.apply_scaler(ordered, sensors, fitted.scaler)
     out = add_temporal_features(out, sensors, params)
     out = fe.add_operating_condition_cluster(out, dl.OP_SETTING_COLS, fitted.kmeans)
     out = fe.add_health_indicator(out, sensors, fitted.health_scaler, fitted.health_pca)

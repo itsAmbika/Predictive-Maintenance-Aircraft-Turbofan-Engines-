@@ -88,3 +88,26 @@ def test_feature_params_changing_would_change_the_columns(artifacts, raw_cmapss_
     a = build_feature_frame(raw_cmapss_file, fitted, stored, na_policy="fill")
     b = build_feature_frame(raw_cmapss_file, fitted, other, na_policy="fill")
     assert set(a.columns) != set(b.columns)
+
+
+def test_predictions_do_not_depend_on_row_order(artifacts, raw_cmapss_file):
+    """An uploaded file may arrive in any order -- shuffled, or "newest first",
+    a common export convention. Lag/diff/EMA are defined relative to the previous
+    row within an engine, so the feature builder must impose the order itself
+    rather than trusting the file. Before this was fixed, shuffling the rows moved
+    predictions by up to 2 cycles."""
+    canonical = raw_cmapss_file.sort_values(["unit_number", "cycle"]).reset_index(drop=True)
+    base, _ = inference.predict_fleet(canonical, artifacts)
+    base = base.set_index("unit_number")["RUL_pred"].sort_index()
+
+    variants = {
+        "shuffled": canonical.sample(frac=1, random_state=0).reset_index(drop=True),
+        "cycles_descending": canonical.sort_values(["unit_number", "cycle"], ascending=[True, False]).reset_index(
+            drop=True
+        ),
+        "interleaved_by_cycle": canonical.sort_values(["cycle", "unit_number"]).reset_index(drop=True),
+    }
+    for name, df in variants.items():
+        got, _ = inference.predict_fleet(df, artifacts)
+        got = got.set_index("unit_number")["RUL_pred"].sort_index()
+        assert np.allclose(got, base), f"row order '{name}' changed the predictions"
