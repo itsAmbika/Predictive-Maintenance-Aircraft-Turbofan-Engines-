@@ -173,6 +173,30 @@ is fine for a portfolio demo. Note the API has **no authentication** -- anyone w
 finds the Space can post files at the inference endpoint (capped at 32MB by
 `RUL_MAX_UPLOAD_BYTES`). Acceptable for a public demo, not for anything else.
 
+## Free hosting options
+
+Measured footprint of the serving process: **~272MB peak** while scoring 100
+engines (imports 239MB, model + SHAP explainer 24MB, a full request 9MB). That
+fits a 512MB free tier, so the same Docker image works everywhere -- no need to
+trade away the React frontend for a Python-native UI.
+
+| Option | Free? | Keeps this stack? | Catch |
+|---|---|---|---|
+| **Render** (`render.yaml`) | yes, no card | yes -- same Dockerfile | sleeps after ~15 min idle, ~50s cold start |
+| Hugging Face Spaces, Docker SDK | yes on CPU basic | yes | see note below |
+| Google Cloud Run | effectively $0 at demo traffic | yes | requires a card on file |
+| Fly.io / Koyeb / Railway | trial credit only | yes | card required, credit expires |
+| HF Spaces, Gradio or Streamlit SDK | yes, no card | no -- rewrite UI in Python | loses the React app |
+| Vercel / Netlify functions | yes | no | 250MB bundle cap; xgboost + shap + scipy won't fit |
+
+Render is the default recommendation: it reads `render.yaml`, builds the same
+Dockerfile, injects `$PORT` (which the CMD honours), and needs no payment method.
+
+> On Hugging Face: the **Docker SDK itself is free on CPU basic hardware**. What
+> costs money there is upgraded hardware, persistent storage, and Dev Mode -- if
+> you hit a paywall while creating the Space, check which of those got switched
+> on rather than assuming Docker is the paid part.
+
 ## Operational notes
 
 - **CORS** is no longer `*`. Set `RUL_CORS_ORIGINS` (comma-separated) for
