@@ -16,6 +16,7 @@ import time
 from typing import Any
 
 import joblib
+import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 from sklearn.ensemble import RandomForestRegressor
@@ -90,6 +91,31 @@ def _log_model(mlflow, flavor: str, model: Any, X_sample) -> None:
         log(**{arg: model}, artifact_path="model", **kwargs)
 
 
+def truncated_validation(val_df: pd.DataFrame, cfg: DictConfig) -> pd.DataFrame:
+    """Score-set that mimics how the official test set was built.
+
+    Validation engines come from the training file, so every one runs to failure
+    and their last row has RUL 0 -- ranking models on "the last row" would be
+    degenerate, and ranking on *all* rows measures a population the model is never
+    asked about (38% of them sit above the RUL cap). The official test set instead
+    truncates each engine at a random point before failure, so that is reproduced
+    here: one random pre-failure cut per engine, repeated `n_truncations` times to
+    average out which cut you happened to draw.
+
+    The same rows are reused for every candidate in a run, so the comparison is
+    paired rather than each model facing a different draw.
+    """
+    sel = cfg.evaluation.selection
+    rng = np.random.default_rng(cfg.project.seed)
+    ordered = val_df.sort_values(["unit_number", "cycle"])
+    picks = []
+    for _ in range(int(sel.n_truncations)):
+        for _, g in ordered.groupby("unit_number"):
+            earliest = max(1, int(len(g) * float(sel.min_life_fraction)))
+            picks.append(g.iloc[rng.integers(earliest, len(g))])
+    return pd.DataFrame(picks).reset_index(drop=True)
+
+
 def train(cfg: DictConfig) -> dict:
     subset = cfg.subset
     processed = resolve(cfg, "processed")
@@ -105,10 +131,27 @@ def train(cfg: DictConfig) -> dict:
 
     target = cfg.target.train_on
     X_train, y_train = train_df[feature_cols], train_df[target]
-    # Always scored against the true (uncapped) RUL, whatever the model was fit on.
-    X_val, y_val = val_df[feature_cols], val_df[cfg.target.name]
+    X_val = val_df[feature_cols]
+    # Early stopping must watch the target the model is actually fitting, or the
+    # boosters stop on a different objective than they optimise.
+    y_val_fit = val_df[target]
+    # Reporting is always against the true, uncapped RUL.
+    y_val = val_df[cfg.target.name]
+
+    # The rows candidates are RANKED on. See truncated_validation() for why this
+    # is not simply the whole validation split.
+    protocol = str(cfg.evaluation.selection.protocol)
+    if protocol == "truncated_validation":
+        sel_df = truncated_validation(val_df, cfg)
+    elif protocol == "full_validation":
+        sel_df = val_df
+    else:
+        raise ValueError(f"unknown evaluation.selection.protocol: {protocol!r}")
+    X_sel, y_sel = sel_df[feature_cols], sel_df[cfg.target.name]
+    print(f"[train] selecting on '{protocol}' ({len(sel_df)} rows, {sel_df.unit_number.nunique()} engines)")
 
     results: dict[str, dict] = {}
+    full_val: dict[str, dict] = {}
     fitted: dict[str, Any] = {}
 
     with tracking.run(cfg, stage="train") as parent:
@@ -123,19 +166,27 @@ def train(cfg: DictConfig) -> dict:
 
             with mlflow.start_run(run_name=name, nested=True):
                 t0 = time.perf_counter()
-                model = _fit(key, estimator, X_train, y_train, X_val, y_val)
+                model = _fit(key, estimator, X_train, y_train, X_val, y_val_fit)
                 fit_seconds = time.perf_counter() - t0
 
-                report = ev.regression_report(y_val, model.predict(X_val))
+                # The selection score decides the winner; the full-validation score
+                # is kept as a diagnostic (it is what the old leaderboard reported).
+                report = ev.regression_report(y_sel, model.predict(X_sel))
+                diag = ev.regression_report(y_val, model.predict(X_val))
                 results[name] = {**report, "fit_seconds": fit_seconds}
+                full_val[name] = diag
                 fitted[name] = model
 
                 mlflow.set_tags({"model_key": key, "model_name": name})
                 mlflow.log_params({f"model.{k}": v for k, v in params.items()})
-                mlflow.log_metrics({f"val_{k}": float(v) for k, v in report.items()})
+                mlflow.log_metrics({f"sel_{k}": float(v) for k, v in report.items()})
+                mlflow.log_metrics({f"fullval_{k}": float(v) for k, v in diag.items()})
                 mlflow.log_metric("fit_seconds", fit_seconds)
                 _log_model(mlflow, flavor, model, X_val.head(5))
-                print(f"[train] {name:18s} MAE={report['MAE']:.3f} RMSE={report['RMSE']:.3f} R2={report['R2']:.3f}")
+                print(
+                    f"[train] {name:18s} selection MAE={report['MAE']:7.3f} R2={report['R2']:6.3f}"
+                    f"   (full-val MAE={diag['MAE']:7.3f})"
+                )
 
         table = ev.metrics_table(results)
         best_name = (
@@ -161,7 +212,9 @@ def train(cfg: DictConfig) -> dict:
             "trained_at": dt.datetime.now(dt.UTC).isoformat(),
             "git_sha": tracking.git_sha(),
             "mlflow_run_id": parent.info.run_id,
-            "val_metrics": results[best_name],
+            "selection_protocol": protocol,
+            "selection_metrics": results[best_name],
+            "full_validation_metrics": full_val[best_name],
             "feature_params": manifest.get("feature_params"),
             "config": config_to_dict(cfg),
         }

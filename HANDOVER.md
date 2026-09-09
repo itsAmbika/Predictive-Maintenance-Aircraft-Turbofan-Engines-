@@ -37,13 +37,31 @@ The NASA score -- the asymmetric one that punishes late predictions -- fell 34x.
   makes it likely because 38% of training rows are a point mass at exactly 125.
   Serving now orders the pair; regression test added.
 
-**Open issue -- model selection is now misaligned.** The leaderboard still ranks
-candidates by validation MAE against *uncapped* RUL, a population the model is
-never asked about in production. Under that metric LightGBM (28.51) edged out
-XGBoost (28.76), but on the official protocol XGBoost-capped scored 12.29 vs
-LightGBM's 13.14 -- so the selection metric picked the slightly worse model.
-Selection should score against `target.train_on`, or better, against the truncated
-validation protocol above. Not yet done.
+**Model selection realigned (and what that revealed).** The train stage used to
+rank candidates on validation MAE against *uncapped* RUL -- a population the model
+is never asked about. It now ranks them under `evaluation.selection.protocol`,
+default `truncated_validation`: each validation engine is cut at a random
+pre-failure point, repeated 20x, and the same rows are reused for every candidate
+so the comparison is paired. Full-validation metrics are kept as a diagnostic in
+MLflow and in the model meta. A related bug was fixed at the same time -- early
+stopping watched the uncapped target while the boosters fit the capped one.
+
+Selection scores moved from ~28.5 (meaningless) to ~19.1 (close to real
+performance). But the ranking did NOT change, and the reason matters:
+
+    Linear Regression  20.888    Random Forest  19.695    XGBoost   19.229
+    Decision Tree      23.096                             LightGBM  19.110
+
+XGBoost and LightGBM are separated by 0.12 cycles. Across 30 independent
+truncation draws of the same 20 engines, LightGBM wins 20 and XGBoost 10, with a
+gap of +0.098 +/- 0.226 cycles -- a coin flip. Meanwhile the official test set
+says XGBoost is genuinely better (MAE 12.29 vs 13.10, NASA 773 vs 883).
+
+So the metric is now correctly aligned, and the binding constraint is sample size:
+**20 validation engines cannot resolve a sub-cycle difference.** The real fix is
+`GroupKFold` over all 100 training engines rather than a single 80/20 split, which
+would give roughly five times the evidence per candidate. Not yet done -- and note
+that the currently served LightGBM is very likely the slightly worse of the two.
 
 **Also note:** `all_test_rows` in `reports/metrics_FD001.json` now reads MAE 42.0.
 That is expected and not a regression -- a capped model cannot score rows above the

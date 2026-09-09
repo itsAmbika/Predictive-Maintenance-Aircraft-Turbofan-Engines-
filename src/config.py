@@ -106,8 +106,16 @@ class GateCfg:
 
 
 @dataclass
+class SelectionCfg:
+    protocol: str = "truncated_validation"
+    n_truncations: int = 20
+    min_life_fraction: float = 0.2
+
+
+@dataclass
 class EvaluationCfg:
     gate: GateCfg = field(default_factory=GateCfg)
+    selection: SelectionCfg = field(default_factory=SelectionCfg)
 
 
 @dataclass

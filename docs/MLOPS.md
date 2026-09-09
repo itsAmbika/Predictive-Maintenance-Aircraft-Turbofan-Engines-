@@ -87,6 +87,24 @@ and the gate result against the same experiment.
 > `pandas<3`, which conflicts with this project's pandas 3. Skinny is the same
 > client; the server runs from its own image in `docker-compose.yml`.
 
+## How candidates are ranked
+
+`evaluation.selection.protocol` decides which rows the train stage ranks models on.
+
+Validation engines come from the training file, so every one runs to failure: their
+last row always has RUL 0, and scoring *all* their rows measures a population the
+model never sees in production (38% sit above the RUL cap). Neither is a sane
+ranking. The default `truncated_validation` instead reproduces how the official
+test set was built -- cut each validation engine at a random pre-failure point,
+repeat 20x, reuse the identical rows for every candidate so the comparison is
+paired. `full_validation` restores the old behaviour.
+
+This moved selection scores from ~28.5 (meaningless) to ~19.1 (close to real
+performance). It did not change the ranking, which is itself the finding: XGBoost
+and LightGBM sit 0.12 cycles apart, and across 30 truncation draws LightGBM wins 20
+to 10 -- noise. With only 20 validation engines the protocol cannot resolve
+sub-cycle differences; `GroupKFold` over all 100 engines is the real answer.
+
 ## Quality gate
 
 `src/pipeline/evaluate.py` scores the **official** test set — the last cycle of

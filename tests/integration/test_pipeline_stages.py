@@ -129,3 +129,39 @@ def test_raw_columns_survive_the_pipeline(mini_project):
     interim = pd.read_parquet(root / "interim" / f"train_{SUBSET}_with_rul.parquet")
     assert set(dl.ALL_COLS) <= set(interim.columns)
     assert interim["RUL"].min() == 0
+
+
+def test_truncated_validation_mimics_the_official_protocol(mini_project):
+    """Candidates are ranked on simulated truncated engines, not all val rows.
+
+    Validation engines run to failure, so their last row always has RUL 0 and
+    ranking on it would be degenerate; ranking on every row measures a population
+    the model is never asked about. This samples one pre-failure cut per engine.
+    """
+    cfg, root = mini_project
+    prepare_data.prepare(cfg)
+    build_features.build(cfg)
+
+    val = pd.read_parquet(root / "processed" / f"val_{SUBSET}_features.parquet")
+    n_rep = int(cfg.evaluation.selection.n_truncations)
+    sel = train.truncated_validation(val, cfg)
+
+    assert len(sel) == n_rep * val["unit_number"].nunique()
+    assert set(sel["unit_number"]) == set(val["unit_number"]), "every engine must appear"
+    # never a degenerate end-of-life row, and never the very start of an engine
+    assert (sel["RUL"] > 0).all(), "a truncation point must have life remaining"
+    for unit, g in sel.groupby("unit_number"):
+        earliest = val[val["unit_number"] == unit]["cycle"].min()
+        assert g["cycle"].min() > earliest
+
+    # deterministic for a fixed seed
+    assert train.truncated_validation(val, cfg)["cycle"].tolist() == sel["cycle"].tolist()
+
+
+def test_unknown_selection_protocol_is_rejected(mini_project):
+    cfg, _ = mini_project
+    prepare_data.prepare(cfg)
+    build_features.build(cfg)
+    cfg.evaluation.selection.protocol = "vibes"
+    with pytest.raises(ValueError, match="selection.protocol"):
+        train.train(cfg)

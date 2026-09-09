@@ -112,6 +112,18 @@ serving_extras:
 # anything. Note these are *official test set* numbers, measured on the last cycle
 # of each of the 100 test engines -- see reports/metrics_FD001.json.
 evaluation:
+  # How the train stage ranks candidates. `truncated_validation` scores each model
+  # the way the official test set is built -- cut every validation engine at a random
+  # point before failure and score that one row -- because ranking on all validation
+  # rows measures a population the model is never asked about in production. That
+  # mistake once picked LightGBM (official MAE 13.14) over XGBoost (12.29).
+  # `full_validation` restores the old behaviour.
+  selection:
+    protocol: truncated_validation
+    n_truncations: 20
+    # Cut no earlier than this fraction into an engine's life.
+    min_life_fraction: 0.2
+
   gate:
     max_mae: 15.0
     max_rmse: 20.0
