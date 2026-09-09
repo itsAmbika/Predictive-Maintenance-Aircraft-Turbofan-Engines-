@@ -99,11 +99,33 @@ test set was built -- cut each validation engine at a random pre-failure point,
 repeat 20x, reuse the identical rows for every candidate so the comparison is
 paired. `full_validation` restores the old behaviour.
 
-This moved selection scores from ~28.5 (meaningless) to ~19.1 (close to real
-performance). It did not change the ranking, which is itself the finding: XGBoost
-and LightGBM sit 0.12 cycles apart, and across 30 truncation draws LightGBM wins 20
-to 10 -- noise. With only 20 validation engines the protocol cannot resolve
-sub-cycle differences; `GroupKFold` over all 100 engines is the real answer.
+`group_kfold` (the default) goes further: 5 engine-grouped folds over **all 100**
+training engines, each fold's held-out engines scored under the same truncation
+rule, with inner early-stopping engines so the boosters are never flattered by
+stopping on the rows they are judged on. Roughly 5x the evidence of a single
+20-engine holdout, at the cost of 25 extra fits (~15 min).
+
+Current standings (mean +/- fold std):
+
+| Candidate | CV MAE | R² |
+|---|---|---|
+| **LightGBM** | **20.07 ± 0.59** | 0.680 |
+| XGBoost | 20.59 ± 0.67 | 0.671 |
+| Random Forest | 21.29 ± 0.36 | 0.653 |
+| Linear Regression | 22.74 ± 0.45 | 0.651 |
+| Decision Tree | 23.80 ± 0.86 | 0.561 |
+
+The top two are **statistically indistinguishable**, and it is worth knowing that
+rather than pretending otherwise. Paired per-fold differences give XGBoost − LightGBM
+= +0.52 cycles, 95% CI **[−0.09, +1.14]** (t-based, 4 df; p = 0.078). The official
+test set leans the other way — XGBoost better by 0.82 cycles — but a paired bootstrap
+over its 100 engines gives 95% CI **[−1.97, +0.33]**, also including zero.
+
+So both comparisons are within noise. LightGBM is served because it won the
+selection protocol, which never touches the test set; the test-set point estimate is
+not grounds to switch, and treating it as such would burn the only unbiased estimate
+the project has. The real lever for separating these two is more engines, not a
+better metric.
 
 ## Quality gate
 

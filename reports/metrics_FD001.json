@@ -1,8 +1,8 @@
 {
   "subset": "FD001",
   "model_name": "LightGBM",
-  "trained_at": "2026-09-09T10:09:20.727096+00:00",
-  "git_sha": "91f1c00",
+  "trained_at": "2026-09-09T10:27:37.185707+00:00",
+  "git_sha": "7d62439",
   "official_test_last_cycle": {
     "MAE": 13.100745499156702,
     "RMSE": 17.907095066322945,

@@ -110,6 +110,8 @@ class SelectionCfg:
     protocol: str = "truncated_validation"
     n_truncations: int = 20
     min_life_fraction: float = 0.2
+    n_splits: int = 5
+    early_stopping_fraction: float = 0.15
 
 
 @dataclass

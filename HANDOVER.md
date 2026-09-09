@@ -4,6 +4,36 @@ Status as of **2026-08-13**. This file is the single source of truth for "what's
 actually done vs. what's left" — read this before `README.md` if you're picking the
 project up fresh.
 
+## Update 2026-09-09 (later) — GroupKFold selection
+
+`evaluation.selection.protocol` now defaults to `group_kfold`: 5 engine-grouped
+folds over all 100 training engines, each fold's held-out engines scored under the
+truncation rule, with inner early-stopping engines so the boosters aren't flattered
+by stopping on the rows they're judged on. ~25 extra fits, about 15 minutes.
+
+    LightGBM           20.068 +/- 0.589   R2 0.680   <- served
+    XGBoost            20.591 +/- 0.668   R2 0.671
+    Random Forest      21.291 +/- 0.355   R2 0.653
+    Linear Regression  22.737 +/- 0.450   R2 0.651
+    Decision Tree      23.796 +/- 0.863   R2 0.561
+
+**The honest conclusion: the top two are statistically indistinguishable.** Paired
+per-fold differences give XGBoost - LightGBM = +0.522 cycles, SE 0.222, 95% CI
+[-0.093, +1.138] (t, 4 df; p = 0.078) -- LightGBM better in 4 of 5 folds but the
+interval includes zero. The official test set leans the other way (XGBoost 12.29 vs
+13.10), and a paired bootstrap over its 100 engines puts that difference at
+95% CI [-1.97, +0.33] -- also including zero, P(XGBoost better) = 92%.
+
+Both comparisons are within noise, so the earlier note that "the served LightGBM is
+very likely the slightly worse of the two" was overstated; there is no evidence to
+support switching. LightGBM stays because it won the selection protocol, which never
+touches the test set. Switching on the strength of a test-set point estimate would
+destroy the only unbiased estimate the project has, for a difference that is not
+measurable. Separating these two needs more engines (FD003 shares FD001's single
+operating condition and would roughly double them), not a better metric.
+
+Official test set is unchanged by this: MAE 13.10, RMSE 17.91, R2 0.814, NASA 883.
+
 ## Update 2026-09-09 — retrained on the capped RUL target
 
 The served model changed, and the headline metric roughly halved.
@@ -57,11 +87,8 @@ truncation draws of the same 20 engines, LightGBM wins 20 and XGBoost 10, with a
 gap of +0.098 +/- 0.226 cycles -- a coin flip. Meanwhile the official test set
 says XGBoost is genuinely better (MAE 12.29 vs 13.10, NASA 773 vs 883).
 
-So the metric is now correctly aligned, and the binding constraint is sample size:
-**20 validation engines cannot resolve a sub-cycle difference.** The real fix is
-`GroupKFold` over all 100 training engines rather than a single 80/20 split, which
-would give roughly five times the evidence per candidate. Not yet done -- and note
-that the currently served LightGBM is very likely the slightly worse of the two.
+So the metric is now correctly aligned, and the binding constraint is sample size.
+That has since been addressed -- see the GroupKFold section below.
 
 **Also note:** `all_test_rows` in `reports/metrics_FD001.json` now reads MAE 42.0.
 That is expected and not a regression -- a capped model cannot score rows above the

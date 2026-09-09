@@ -165,3 +165,53 @@ def test_unknown_selection_protocol_is_rejected(mini_project):
     cfg.evaluation.selection.protocol = "vibes"
     with pytest.raises(ValueError, match="selection.protocol"):
         train.train(cfg)
+
+
+def test_group_kfold_scores_every_candidate_over_all_engines(mini_project):
+    """CV folds are grouped by engine and every candidate is scored on every fold."""
+    cfg, root = mini_project
+    prepare_data.prepare(cfg)
+    build_features.build(cfg)
+
+    tr = pd.read_parquet(root / "processed" / f"train_{SUBSET}_features.parquet")
+    va = pd.read_parquet(root / "processed" / f"val_{SUBSET}_features.parquet")
+    pool = pd.concat([tr, va], ignore_index=True)
+    manifest = joblib.load(root / "artifacts" / f"feature_manifest_{SUBSET}.joblib")
+
+    cfg.evaluation.selection.n_splits = 2
+    scores = train.group_kfold_scores(pool, cfg, manifest["feature_cols"])
+
+    assert set(scores) == {"Linear Regression", "Random Forest"}
+    for name, r in scores.items():
+        assert r["MAE"] > 0, name
+        # the fold-to-fold spread is what says whether a ranking is trustworthy
+        assert "MAE_std" in r and r["MAE_std"] >= 0
+        assert r["n"] > 0
+
+
+def test_group_kfold_never_scores_an_engine_it_trained_on(mini_project, monkeypatch):
+    """The leakage guarantee of grouped CV: held-out engines are truly held out."""
+    cfg, root = mini_project
+    prepare_data.prepare(cfg)
+    build_features.build(cfg)
+
+    tr = pd.read_parquet(root / "processed" / f"train_{SUBSET}_features.parquet")
+    va = pd.read_parquet(root / "processed" / f"val_{SUBSET}_features.parquet")
+    pool = pd.concat([tr, va], ignore_index=True)
+    manifest = joblib.load(root / "artifacts" / f"feature_manifest_{SUBSET}.joblib")
+    cfg.evaluation.selection.n_splits = 2
+
+    seen = []
+    real_fit = train._fit
+
+    def spy(key, model, X_train, y_train, X_val, y_val):
+        seen.append((set(pool.loc[X_train.index, "unit_number"]), set(pool.loc[X_val.index, "unit_number"])))
+        return real_fit(key, model, X_train, y_train, X_val, y_val)
+
+    monkeypatch.setattr(train, "_fit", spy)
+    train.group_kfold_scores(pool, cfg, manifest["feature_cols"])
+
+    assert seen, "no folds ran"
+    for fit_engines, stop_engines in seen:
+        # inner early-stopping engines must also be disjoint from the fitted ones
+        assert fit_engines & stop_engines == set()

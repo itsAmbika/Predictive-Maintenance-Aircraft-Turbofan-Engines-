@@ -118,11 +118,20 @@ evaluation:
   # rows measures a population the model is never asked about in production. That
   # mistake once picked LightGBM (official MAE 13.14) over XGBoost (12.29).
   # `full_validation` restores the old behaviour.
+  # `group_kfold` is the most trustworthy: it cross-validates over ALL 100 training
+  # engines instead of judging on a single 20-engine holdout, which is roughly 5x
+  # the evidence per candidate. `truncated_validation` is the cheap single-split
+  # version; `full_validation` is the old (misaligned) behaviour.
   selection:
-    protocol: truncated_validation
+    protocol: group_kfold
     n_truncations: 20
     # Cut no earlier than this fraction into an engine's life.
     min_life_fraction: 0.2
+    # group_kfold only:
+    n_splits: 5
+    # Within each fold, engines held back so early stopping never sees the
+    # engines the fold is scored on.
+    early_stopping_fraction: 0.15
 
   gate:
     max_mae: 15.0

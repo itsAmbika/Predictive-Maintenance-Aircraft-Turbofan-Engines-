@@ -116,6 +116,65 @@ def truncated_validation(val_df: pd.DataFrame, cfg: DictConfig) -> pd.DataFrame:
     return pd.DataFrame(picks).reset_index(drop=True)
 
 
+def group_kfold_scores(pool: pd.DataFrame, cfg: DictConfig, feature_cols: list[str]) -> dict[str, dict]:
+    """Rank candidates by GroupKFold over every training engine.
+
+    A single 80/20 engine split judges each candidate on 20 engines, which cannot
+    resolve sub-cycle differences: across 30 truncation draws the top two models
+    traded places 20-10 with a gap of 0.10 +/- 0.23 cycles. Cross-validating over
+    all 100 engines gives every candidate ~5x the evidence.
+
+    Folds are grouped by engine, so no engine's cycles appear on both sides. Each
+    fold's held-out engines are scored under the truncation protocol (the same one
+    the official test set uses), and within a fold the boosters get their own inner
+    early-stopping engines so the scored engines never influence when they stop --
+    otherwise the early-stopping models would be flattered relative to the others.
+
+    Returns {display name: averaged metrics}, with `MAE_std` across folds.
+    """
+    from sklearn.model_selection import GroupKFold, GroupShuffleSplit
+
+    sel = cfg.evaluation.selection
+    target, truth = cfg.target.train_on, cfg.target.name
+    gkf = GroupKFold(n_splits=int(sel.n_splits))
+    per_model: dict[str, list[dict]] = {}
+
+    for fold, (tr_idx, te_idx) in enumerate(gkf.split(pool, groups=pool["unit_number"].to_numpy()), start=1):
+        fold_train, fold_test = pool.iloc[tr_idx], pool.iloc[te_idx]
+
+        inner = GroupShuffleSplit(
+            n_splits=1, test_size=float(sel.early_stopping_fraction), random_state=cfg.project.seed
+        )
+        i_fit, i_stop = next(inner.split(fold_train, groups=fold_train["unit_number"].to_numpy()))
+        fit_df, stop_df = fold_train.iloc[i_fit], fold_train.iloc[i_stop]
+        scored = truncated_validation(fold_test, cfg)
+
+        for key in cfg.models.candidates:
+            name = DISPLAY_NAMES.get(key, key)
+            params = dict(config_to_dict(cfg).get("models", {}).get(key, {}) or {})
+            estimator, _ = _build_estimator(key, params)
+            model = _fit(key, estimator, fit_df[feature_cols], fit_df[target], stop_df[feature_cols], stop_df[target])
+            report = ev.regression_report(scored[truth], model.predict(scored[feature_cols]))
+            per_model.setdefault(name, []).append(report)
+
+        print(
+            f"[train]   fold {fold}/{int(sel.n_splits)}: "
+            f"{fold_train.unit_number.nunique()} engines fit, {fold_test.unit_number.nunique()} scored"
+        )
+
+    out = {}
+    for name, reports in per_model.items():
+        out[name] = {
+            "MAE": float(np.mean([r["MAE"] for r in reports])),
+            "RMSE": float(np.mean([r["RMSE"] for r in reports])),
+            "R2": float(np.mean([r["R2"] for r in reports])),
+            "NASA_score": float(np.mean([r["NASA_score"] for r in reports])),
+            "n": int(sum(r["n"] for r in reports)),
+            "MAE_std": float(np.std([r["MAE"] for r in reports])),
+        }
+    return out
+
+
 def train(cfg: DictConfig) -> dict:
     subset = cfg.subset
     processed = resolve(cfg, "processed")
@@ -141,14 +200,26 @@ def train(cfg: DictConfig) -> dict:
     # The rows candidates are RANKED on. See truncated_validation() for why this
     # is not simply the whole validation split.
     protocol = str(cfg.evaluation.selection.protocol)
-    if protocol == "truncated_validation":
+    cv_results: dict[str, dict] | None = None
+    if protocol == "group_kfold":
+        # Cross-validate over every training engine -- both sides of the 80/20
+        # split, since val engines are training-file engines too.
+        pool = pd.concat([train_df, val_df], ignore_index=True)
+        print(
+            f"[train] selecting on 'group_kfold' "
+            f"({int(cfg.evaluation.selection.n_splits)} folds over {pool.unit_number.nunique()} engines)"
+        )
+        cv_results = group_kfold_scores(pool, cfg, feature_cols)
+        sel_df = val_df  # unused for ranking; kept so the diagnostic below still runs
+    elif protocol == "truncated_validation":
         sel_df = truncated_validation(val_df, cfg)
+        print(f"[train] selecting on '{protocol}' ({len(sel_df)} rows, {sel_df.unit_number.nunique()} engines)")
     elif protocol == "full_validation":
         sel_df = val_df
+        print(f"[train] selecting on '{protocol}' ({len(sel_df)} rows, {sel_df.unit_number.nunique()} engines)")
     else:
         raise ValueError(f"unknown evaluation.selection.protocol: {protocol!r}")
     X_sel, y_sel = sel_df[feature_cols], sel_df[cfg.target.name]
-    print(f"[train] selecting on '{protocol}' ({len(sel_df)} rows, {sel_df.unit_number.nunique()} engines)")
 
     results: dict[str, dict] = {}
     full_val: dict[str, dict] = {}
@@ -171,7 +242,11 @@ def train(cfg: DictConfig) -> dict:
 
                 # The selection score decides the winner; the full-validation score
                 # is kept as a diagnostic (it is what the old leaderboard reported).
-                report = ev.regression_report(y_sel, model.predict(X_sel))
+                # Under group_kfold the ranking comes from cross-validation, not
+                # from scoring this final model on a holdout it may have seen.
+                report = (
+                    cv_results[name] if cv_results is not None else ev.regression_report(y_sel, model.predict(X_sel))
+                )
                 diag = ev.regression_report(y_val, model.predict(X_val))
                 results[name] = {**report, "fit_seconds": fit_seconds}
                 full_val[name] = diag
@@ -183,8 +258,9 @@ def train(cfg: DictConfig) -> dict:
                 mlflow.log_metrics({f"fullval_{k}": float(v) for k, v in diag.items()})
                 mlflow.log_metric("fit_seconds", fit_seconds)
                 _log_model(mlflow, flavor, model, X_val.head(5))
+                spread = f" +/-{report['MAE_std']:5.3f}" if "MAE_std" in report else ""
                 print(
-                    f"[train] {name:18s} selection MAE={report['MAE']:7.3f} R2={report['R2']:6.3f}"
+                    f"[train] {name:18s} selection MAE={report['MAE']:7.3f}{spread} R2={report['R2']:6.3f}"
                     f"   (full-val MAE={diag['MAE']:7.3f})"
                 )
 
