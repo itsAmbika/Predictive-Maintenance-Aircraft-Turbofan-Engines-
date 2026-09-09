@@ -4,6 +4,56 @@ Status as of **2026-08-13**. This file is the single source of truth for "what's
 actually done vs. what's left" — read this before `README.md` if you're picking the
 project up fresh.
 
+## Update 2026-09-09 — retrained on the capped RUL target
+
+The served model changed, and the headline metric roughly halved.
+
+**What changed.** `target.train_on` is now `RUL_capped` (was raw `RUL`). An engine
+with 300 cycles of life left shows no degradation signal, so asking the model to
+distinguish 300 from 280 is asking it to fit noise. Capping at 125 says "anything
+beyond this is simply healthy".
+
+**How it was chosen.** Not by looking at the test set. The official test set is
+built by truncating each engine at a random point before failure, so that protocol
+was reproduced on the validation engines (20 random truncations x 20 engines):
+
+    fit on RUL          MAE 20.69 +/- 3.30   R2 0.620
+    fit on RUL_capped   MAE 18.63 +/- 3.90   R2 0.716
+
+Only then was the official test set scored, as confirmation:
+
+    XGBoost   fit on RUL          MAE 21.86  RMSE 30.20  R2 0.472  NASA 28,761
+    LightGBM  fit on RUL_capped   MAE 13.14  RMSE 17.87  R2 0.815  NASA    846
+
+The NASA score -- the asymmetric one that punishes late predictions -- fell 34x.
+
+**Two things this run surfaced, both fixed:**
+
+- The prediction interval was fit on uncapped RUL while the point estimate was
+  capped, so the UI would have shown "125 cycles, interval [40, 300]". The quantile
+  regressors now use the same target as the point model.
+- The integration suite caught inverted intervals (`rul_low` 125.1 > `rul_high`
+  125.0). Independently-fit quantile regressors can cross, and the capped target
+  makes it likely because 38% of training rows are a point mass at exactly 125.
+  Serving now orders the pair; regression test added.
+
+**Open issue -- model selection is now misaligned.** The leaderboard still ranks
+candidates by validation MAE against *uncapped* RUL, a population the model is
+never asked about in production. Under that metric LightGBM (28.51) edged out
+XGBoost (28.76), but on the official protocol XGBoost-capped scored 12.29 vs
+LightGBM's 13.14 -- so the selection metric picked the slightly worse model.
+Selection should score against `target.train_on`, or better, against the truncated
+validation protocol above. Not yet done.
+
+**Also note:** `all_test_rows` in `reports/metrics_FD001.json` now reads MAE 42.0.
+That is expected and not a regression -- a capped model cannot score rows above the
+cap. `official_test_last_cycle` is the meaningful number.
+
+**Interval quality:** 80% nominal, 77.7% empirical coverage on validation but only
+65% on the official test set, and the point estimate falls outside its own interval
+for 13% of engines (point model and quantile models are different families).
+Recalibration is worth doing before anyone leans on the interval.
+
 ## Update 2026-08-13 — MLOps foundation
 
 The notebooks are no longer the only way to produce artifacts. Added:

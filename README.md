@@ -11,10 +11,12 @@ reproducible, config-driven, tracked, tested and containerized workflow — see
 [`docs/MLOPS.md`](docs/MLOPS.md) for that half. **See
 [`HANDOVER.md`](HANDOVER.md) for the current, authoritative status** — what's been
 executed with real data, what's still left, and suggested next steps.
-Short version: notebooks 01–06 have been run for real (FD001; best served model:
-XGBoost, validation R² 0.76 — on the official test set, scored the PHM08 way, the
-same model gets MAE 21.9 / R² 0.47, see [`docs/MLOPS.md`](docs/MLOPS.md#quality-gate);
-GRU is close behind and wins on MAE/RMSE); the API additionally
+Short version: the pipeline has been run for real on FD001. The served model is
+**LightGBM trained on the capped RUL target**, scoring **MAE 13.1 cycles / R² 0.82
+/ NASA score 846** on the official PHM08 test protocol (last cycle of each of the
+100 test engines). Switching the training target from raw to capped RUL is what
+took MAE from 21.9 to 13.1 — see [`docs/MLOPS.md`](docs/MLOPS.md#quality-gate)
+for why, and for which metrics are diagnostic rather than meaningful. The API additionally
 serves failure probabilities, RUL prediction intervals, and live SHAP explanations
 (fitted/persisted via `scripts/fit_serving_extras.py` rather than re-running notebooks
 07/08); a React app (`frontend-react/`) is the primary UI, with the older static-JS

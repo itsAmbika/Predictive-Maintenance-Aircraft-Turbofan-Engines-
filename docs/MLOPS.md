@@ -96,14 +96,20 @@ retraining jobs stop before a regression reaches the registry.
 
 Two metric sets are reported, because they are easy to confuse:
 
-| | what it measures | current (XGBoost, FD001) |
+| | what it measures | current (LightGBM, FD001) |
 |---|---|---|
-| `official_test_last_cycle` | 100 engines, last cycle each — the PHM08 setup | MAE 21.9, RMSE 30.2, **R² 0.47** |
-| validation split | 4,010 rows from held-out training engines | MAE 23.2, RMSE 32.1, **R² 0.76** |
+| `official_test_last_cycle` | 100 engines, last cycle each — the PHM08 setup | MAE **13.1**, RMSE 17.9, R² **0.82**, NASA **846** |
+| validation split | 4,010 rows from held-out training engines, scored against uncapped RUL | MAE 28.5, RMSE 42.0, R² 0.58 |
+| `all_test_rows` | every test row | MAE 42.0 — see the warning below |
 
-The R² 0.76 quoted in `README.md`/`HANDOVER.md` is the **validation** number.
-`/api/model-info` also serves the validation leaderboard row. Both are in
-`reports/metrics_<subset>.json`.
+Read those rows carefully; they are not interchangeable.
+
+The model is fit on **`RUL_capped`** (see `target.train_on`), so it cannot predict
+above 125 by construction. That is correct for the task — the official protocol
+only ever asks about truncated engines, 89% of which have under 125 cycles left —
+but it makes any metric computed over *all* rows look terrible, because 38% of
+those rows sit above the cap. **`all_test_rows` and the validation leaderboard are
+diagnostic only. `official_test_last_cycle` is the number that means something.**
 
 ## Tests
 

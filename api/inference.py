@@ -130,8 +130,15 @@ def predict_fleet(raw_df: pd.DataFrame, artifacts: dict) -> tuple[pd.DataFrame, 
     last_rows["risk_action"] = last_rows["risk"].map(health.risk_action)
 
     if artifacts["quantile_models"] is not None:
-        last_rows["rul_pred_low"] = artifacts["quantile_models"]["low"].predict(X_last)
-        last_rows["rul_pred_high"] = artifacts["quantile_models"]["high"].predict(X_last)
+        lo = artifacts["quantile_models"]["low"].predict(X_last)
+        hi = artifacts["quantile_models"]["high"].predict(X_last)
+        # The two quantile regressors are fit independently, so nothing forces
+        # low <= high ("quantile crossing"). It shows up around the RUL cap, where
+        # the capped target is a point mass and both models converge on the same
+        # value: 125.1 vs 125.0 is enough to invert the interval. Order the pair
+        # rather than emitting a backwards one.
+        last_rows["rul_pred_low"] = np.minimum(lo, hi)
+        last_rows["rul_pred_high"] = np.maximum(lo, hi)
     else:
         last_rows["rul_pred_low"] = None
         last_rows["rul_pred_high"] = None

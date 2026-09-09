@@ -41,9 +41,13 @@ target:
   # Application-level modeling choice (not a physical constant): RUL is flat at
   # `cap` cycles while an engine is still healthy. Written as RUL_capped.
   cap: 125
-  # Which column models are fit on. `RUL` reproduces the notebook baseline;
-  # `RUL_capped` usually improves late-life accuracy.
-  train_on: RUL
+  # Which column models are fit on. `RUL` reproduces the notebook baseline.
+  # `RUL_capped` is the default because it matches the inference-time
+  # distribution: 38% of training rows sit above the cap, but only 11% of the
+  # engines the model is actually asked about do. Chosen on validation under the
+  # official truncation protocol (MAE 18.6 vs 20.7), then confirmed on the
+  # official test set (MAE 12.3 vs 21.9, NASA score 770 vs 28,761).
+  train_on: RUL_capped
 
 models:
   # Trained in this order; every one is logged to MLflow and lands in the leaderboard.
@@ -102,15 +106,16 @@ serving_extras:
 # (last cycle of each of the 100 test engines). A model failing any of these is not
 # eligible for registry promotion, and `python -m src.pipeline.evaluate` exits 1.
 #
-# Thresholds sit just below the current champion (MAE 21.9, RMSE 30.2, R2 0.47) so
-# a regression trips the gate. Note these are *official test set* numbers: the
-# validation-split R2 quoted in README/HANDOVER (0.76) is a different, easier
-# measurement -- see reports/metrics_FD001.json for both side by side.
+# Thresholds sit just below the current champion (MAE 13.1, RMSE 17.9, R2 0.82)
+# with ~15% headroom for run-to-run variance, so a real regression trips the gate.
+# Re-tighten these whenever the champion improves, or the gate stops guarding
+# anything. Note these are *official test set* numbers, measured on the last cycle
+# of each of the 100 test engines -- see reports/metrics_FD001.json.
 evaluation:
   gate:
-    max_mae: 25.0
-    max_rmse: 35.0
-    min_r2: 0.40
+    max_mae: 15.0
+    max_rmse: 20.0
+    min_r2: 0.75
 
 mlflow:
   # null -> MLFLOW_TRACKING_URI env var, else a local ./mlruns file store.

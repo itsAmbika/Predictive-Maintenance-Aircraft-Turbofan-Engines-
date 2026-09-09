@@ -55,13 +55,17 @@ def fit_extras(cfg: DictConfig) -> dict:
     q_params = dict(config_to_dict(cfg)["serving_extras"]["quantile_params"])
     low = GradientBoostingRegressor(loss="quantile", alpha=float(extras.quantile_low), **q_params)
     high = GradientBoostingRegressor(loss="quantile", alpha=float(extras.quantile_high), **q_params)
-    low.fit(X_train, train[cfg.target.name])
-    high.fit(X_train, train[cfg.target.name])
+    # Same target as the point model: an interval on a different scale than the
+    # prediction it brackets is meaningless (a capped point estimate of 125 with
+    # an uncapped interval of [40, 300] would be nonsense in the UI).
+    low.fit(X_train, train[cfg.target.train_on])
+    high.fit(X_train, train[cfg.target.train_on])
 
     # Empirical coverage on validation: what fraction of true RULs land inside the
     # predicted interval. Should sit near (high - low), i.e. 80% by default.
     lo_pred, hi_pred = low.predict(X_val), high.predict(X_val)
-    coverage = float(((val[cfg.target.name] >= lo_pred) & (val[cfg.target.name] <= hi_pred)).mean())
+    truth = val[cfg.target.train_on]
+    coverage = float(((truth >= lo_pred) & (truth <= hi_pred)).mean())
     nominal = float(extras.quantile_high - extras.quantile_low)
     print(f"[serving_extras] interval coverage on val: {coverage:.3f} (nominal {nominal:.2f})")
 

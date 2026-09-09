@@ -111,3 +111,14 @@ def test_predictions_do_not_depend_on_row_order(artifacts, raw_cmapss_file):
         got, _ = inference.predict_fleet(df, artifacts)
         got = got.set_index("unit_number")["RUL_pred"].sort_index()
         assert np.allclose(got, base), f"row order '{name}' changed the predictions"
+
+
+def test_prediction_interval_is_never_inverted(artifacts, raw_cmapss_file):
+    """The 10th/90th percentile regressors are fit independently, so nothing
+    forces low <= high. Near the RUL cap the capped target is a point mass and
+    both converge on ~125, which is enough to cross (observed: low 125.1,
+    high 125.0). The serving layer must order the pair."""
+    last, _ = inference.predict_fleet(raw_cmapss_file, artifacts)
+    if last["rul_pred_low"].isna().all():
+        pytest.skip("quantile models not built")
+    assert (last["rul_pred_low"] <= last["rul_pred_high"]).all()
